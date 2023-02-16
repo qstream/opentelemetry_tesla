@@ -33,12 +33,11 @@ defmodule OpentelemetryTesla.MixProject do
       licenses: ["Apache-2.0"],
       links: %{
         "GitHub" =>
-          "https://github.com/open-telemetry/opentelemetry-erlang-contrib/instrumentation/opentelemetry_tesla",
+          "https://github.com/open-telemetry/opentelemetry-erlang-contrib/tree/main/instrumentation/opentelemetry_tesla",
         "OpenTelemetry Erlang" => "https://github.com/open-telemetry/opentelemetry-erlang",
         "OpenTelemetry Erlang Contrib" => "https://github.com/open-telemetry/opentelemetry-erlang-contrib",
         "OpenTelemetry.io" => "https://opentelemetry.io"
       }
-    ]
     ]
   end
 
@@ -52,9 +51,11 @@ defmodule OpentelemetryTesla.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:opentelemetry, "~> 1.0.0", only: :test},
-      {:opentelemetry_api, "~> 1.0.0"},
-      {:opentelemetry_telemetry, "~> 1.0.0"},
+      {:opentelemetry, "~> 1.0", only: :test},
+      {:opentelemetry_api, "~> 1.0"},
+      {:opentelemetry_telemetry, "~> 1.0"},
+      {:opentelemetry_semantic_conventions, "~> 0.2"},
+      {:opentelemetry_process_propagator, "~> 0.2"},
       {:tesla, "~> 1.4"},
       {:ex_doc, "~> 0.24", only: :dev, runtime: false},
       {:bypass, "~> 2.1", only: :test},

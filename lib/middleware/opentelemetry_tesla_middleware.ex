@@ -1,16 +1,44 @@
 defmodule Tesla.Middleware.OpenTelemetry do
-  require OpenTelemetry.Tracer
+  alias OpenTelemetry.SemanticConventions
+  require OpenTelemetry.Ctx
+  require SemanticConventions.Trace
+
   @behaviour Tesla.Middleware
 
-  def call(env, next, _options) do
-    span_name = get_span_name(env)
+  @tracer_id __MODULE__
 
-    OpenTelemetry.Tracer.with_span span_name, %{kind: :client} do
-      env
-      |> Tesla.put_headers(:otel_propagator_text_map.inject([]))
-      |> Tesla.run(next)
-      |> set_span_attributes()
-      |> handle_result()
+  @impl true
+  def call(env, next, options) do
+    span_name = get_span_name(env)
+    span_continuation(options)
+    OpentelemetryTelemetry.start_telemetry_span(
+      @tracer_id,
+      span_name,
+      %{},
+      %{kind: :client}
+    )
+
+    result = Tesla.put_headers(env, :otel_propagator_text_map.inject([]))
+    |> Tesla.run(next)
+    |> set_span_attributes()
+    |> handle_result()
+
+    OpentelemetryTelemetry.end_telemetry_span(__MODULE__, %{})
+    result
+  end
+
+  defp span_continuation(_options) do
+    current_span_ctx = case OpenTelemetry.Ctx.get_current() do
+      %{} ->
+        OpentelemetryProcessPropagator.fetch_parent_ctx()
+      ctx ->
+        ctx
+    end
+    case current_span_ctx do
+      :undefined ->
+        :ok
+      ctx ->
+        OpenTelemetry.Ctx.attach(ctx)
     end
   end
 
@@ -22,6 +50,7 @@ defmodule Tesla.Middleware.OpenTelemetry do
   end
 
   defp set_span_attributes({_, %Tesla.Env{} = env} = result) do
+    OpentelemetryTelemetry.set_current_telemetry_span(@tracer_id, %{})
     OpenTelemetry.Tracer.set_attributes(build_attrs(env))
 
     result
@@ -64,12 +93,13 @@ defmodule Tesla.Middleware.OpenTelemetry do
     uri = URI.parse(url)
 
     attrs = %{
-      "http.method": http_method(method),
-      "http.url": url,
-      "http.target": uri.path,
-      "http.host": uri.host,
-      "http.scheme": uri.scheme,
-      "http.status_code": status_code
+      SemanticConventions.Trace.http_method() => http_method(method),
+      SemanticConventions.Trace.http_url() => url,
+      SemanticConventions.Trace.http_target() => uri.path,
+      SemanticConventions.Trace.net_host_name() => uri.host,
+      SemanticConventions.Trace.net_host_port() => uri.port,
+      SemanticConventions.Trace.http_scheme() => uri.scheme,
+      SemanticConventions.Trace.http_status_code() => status_code
     }
 
     maybe_append_content_length(attrs, headers)
@@ -81,7 +111,7 @@ defmodule Tesla.Middleware.OpenTelemetry do
         attrs
 
       {_key, content_length} ->
-        Map.put(attrs, :"http.response_content_length", content_length)
+        Map.put(attrs, SemanticConventions.Trace.http_response_content_length(), content_length)
     end
   end
 

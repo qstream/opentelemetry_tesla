@@ -10,18 +10,23 @@ defmodule Tesla.Middleware.OpenTelemetryTest do
     Record.defrecord(name, spec)
   end
 
+  # for {name, spec} <- Record.extract_all(from_lib: "opentelemetry/src/otel_tracer.hrl") do
+  #   Record.defrecordp(name, spec)
+  # end
+
   setup do
+    Code.compiler_options(ignore_module_conflict: true)
     bypass = Bypass.open()
 
-    :application.stop(:opentelemetry)
-    :application.set_env(:opentelemetry, :tracer, :otel_tracer_default)
+    Application.load(:opentelemetry)
+    Application.stop(:opentelemetry)
+    Application.put_env(:opentelemetry, :tracer, :otel_tracer_default)
 
-    :application.set_env(:opentelemetry, :processors, [
+    Application.put_env(:opentelemetry, :processors, [
       {:otel_batch_processor, %{scheduled_delay_ms: 1, exporter: {:otel_exporter_pid, self()}}}
     ])
 
-    :application.start(:opentelemetry)
-
+    {:ok, _} = Application.ensure_all_started(:opentelemetry)
     {:ok, bypass: bypass}
   end
 
@@ -297,13 +302,7 @@ defmodule Tesla.Middleware.OpenTelemetryTest do
   end
 
   test "Injects distributed tracing headers" do
-    OpentelemetryTelemetry.start_telemetry_span(
-      "tracer_id",
-      "my_label",
-      %{},
-      %{kind: :client}
-    )
-
+    parent_span_id = start_parent_span()
     assert {:ok,
             %Tesla.Env{
               headers: [
@@ -315,9 +314,38 @@ defmodule Tesla.Middleware.OpenTelemetryTest do
                [],
                "http://example.com"
              )
-
     assert is_binary(traceparent)
+    stop_parent_span()
+    assert_receive {:span, span(name: "HTTP" <> _, parent_span_id: ^parent_span_id)}
+  end
+
+  test "Handles parent process" do
+    parent_span_id = start_parent_span()
+    Task.async(fn ->
+      Tesla.Middleware.OpenTelemetry.call(
+        %Tesla.Env{url: ""},
+        [],
+        "http://example.com"
+      )
+    end)
+    |> Task.await()
+
+    stop_parent_span()
+    assert_receive {:span, span(name: "HTTP" <> _, parent_span_id: ^parent_span_id)}
   end
 
   defp endpoint_url(port), do: "http://localhost:#{port}/"
+
+  defp start_parent_span() do
+    span_ctx(span_id: parent_span_id) = OpentelemetryTelemetry.start_telemetry_span(
+      __MODULE__,
+      "parent-span",
+      %{},
+      %{kind: :client}
+    )
+    OpentelemetryTelemetry.set_current_telemetry_span(__MODULE__, %{})
+    parent_span_id
+  end
+
+  defp stop_parent_span(), do: OpentelemetryTelemetry.end_telemetry_span(__MODULE__, %{})
 end
