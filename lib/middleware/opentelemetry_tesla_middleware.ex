@@ -28,9 +28,9 @@ defmodule Tesla.Middleware.OpenTelemetry do
   end
 
   defp span_continuation(_options) do
-    current_span_ctx = case OpenTelemetry.Ctx.get_current() do
-      %{} ->
-        OpentelemetryProcessPropagator.fetch_parent_ctx()
+    current_span_ctx = case OpentelemetryProcessPropagator.fetch_ctx(self()) do
+      :undefined ->
+        OpentelemetryProcessPropagator.fetch_parent_ctx(1, :"$callers")
       ctx ->
         ctx
     end
